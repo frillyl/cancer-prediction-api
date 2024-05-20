@@ -1,13 +1,14 @@
 const predictClassification = require('../services/inferenceService');
 const crypto = require('crypto');
 const storeData = require('../services/storeData');
+const { Firestore } = require('@google-cloud/firestore');
 
 async function postPredictHandler(request, h) {
     const { image } = request.payload;
     const { model } = request.server.app;
 
     try {
-        const { label, suggestion } = await predictClassification(model, image);
+        const { label, suggestion, confidenceScore } = await predictClassification(model, image);
         const id = crypto.randomUUID();
         const createdAt = new Date().toISOString();
 
@@ -22,9 +23,9 @@ async function postPredictHandler(request, h) {
 
         const response = h.response({
             status: 'success',
-            message: 'Model is predicted successfully',
+            message: confidenceScore > 50 ? 'Model is predicted successfully' : 'Model is predicted successfully',
             data
-        })
+        });
         response.code(201);
         return response;
     } catch (error) {
@@ -39,4 +40,42 @@ async function postPredictHandler(request, h) {
     }
 }
 
-module.exports = postPredictHandler;
+async function getHistoriesHandler(request, h) {
+    const db = new Firestore({
+        projectId: 'submissionmlgc-frillylakumani',
+        keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS
+    });
+
+    const predictCollection = db.collection('predictions');
+
+    try {
+        const snapshot = await predictCollection.get();
+        const histories = [];
+
+        snapshot.forEach(doc => {
+            const data = doc.data();
+            histories.push({
+                id: doc.id,
+                history: data
+            });
+        });
+
+        const response = h.response({
+            status: 'success',
+            data: histories
+        });
+        response.code(200);
+        return response;
+    } catch (error) {
+        console.error('Error fetching histories:', error);
+        const response = h.response({
+            status: 'fail',
+            message: 'Terjadi kesalahan dalam mengambil riwayat prediksi',
+            error: error.message
+        });
+        response.code(500);
+        return response;
+    }
+}
+
+module.exports = { postPredictHandler, getHistoriesHandler };
